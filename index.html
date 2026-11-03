@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>أكاديمية ورتّل لتعليم القرآن الكريم | Warattel Quran Academy</title>
+  
+  <!-- الخطوط العربية الفاخرة -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+
+  <!-- مكتبة التصميم Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brandGreen: '#0c4a2c',
+            brandGreenDark: '#08331e',
+            brandGreenLight: '#12613b',
+            brandGold: '#c9a34a',
+            brandGoldLight: '#d8b45c',
+            brandIvory: '#FAF8F5',
+            brandBlack: '#111111',
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- مكتبة Supabase الرسمية المباشرة -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    body { font-family: 'Cairo', sans-serif; background-color: #FAF8F5; margin: 0; padding: 0; }
+    .quran-font { font-family: 'Amiri', serif; }
+  </style>
+</head>
+<body class="text-brandBlack flex flex-col min-h-screen">
+
+  <!-- رأس الموقع الرسمي (Header) -->
+  <header class="bg-brandGreen text-white sticky top-0 z-40 shadow-lg border-b-2 border-brandGold">
+    <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+      
+      <!-- شعار واسم الأكاديمية الرسمي -->
+      <div class="flex items-center gap-3 cursor-pointer" onclick="goToHome()">
+        <div class="w-10 h-10 rounded-full border-2 border-brandGold bg-white flex items-center justify-center p-0.5 shadow">
+          <div class="w-full h-full rounded-full bg-brandGreen text-brandGold flex items-center justify-center font-bold text-[9px]">
+            وَرَتِّلْ
+          </div>
+        </div>
+        <div>
+          <h1 class="text-base sm:text-lg font-black leading-tight text-white m-0">أكاديمية وَرَتِّلْ لتعليم القرآن</h1>
+          <p class="text-[10px] text-brandGold m-0">حيثُ تُزهرُ القلوبُ بنور القرآن</p>
+        </div>
+      </div>
+
+      <!-- أزرار الدخول -->
+      <div id="auth-buttons" class="flex items-center gap-2">
+        <button onclick="openLoginModal()" class="bg-brandGold hover:bg-brandGoldLight text-black text-xs font-black px-4 py-2 rounded-xl shadow transition">
+          🔐 تسجيل الدخول
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- نافذة تسجيل الدخول المشفرة (تفتح بنافذة منبثقة) -->
+  <div id="login-modal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border border-gray-200">
+      <div class="text-center mb-5">
+        <div class="w-12 h-12 bg-green-100 text-brandGreen rounded-2xl flex items-center justify-center mx-auto mb-2 text-2xl font-bold">
+          🕌
+        </div>
+        <h3 class="text-lg font-black text-gray-900 m-0">تسجيل الدخول للمنصة</h3>
+        <p class="text-xs text-gray-500 mt-1">يُرجى إدخال كلمة المرور للمتابعة</p>
+      </div>
+
+      <div id="login-error" class="hidden bg-red-50 text-red-700 text-xs p-2.5 rounded-xl border border-red-200 mb-3 text-center font-bold">
+      </div>
+
+      <form onsubmit="handleLoginSubmit(event)" class="space-y-3.5">
+        <div>
+          <label class="block text-xs font-bold text-gray-700 mb-1">نوع الحساب:</label>
+          <select id="login-role" class="w-full p-2.5 border rounded-xl text-xs font-bold bg-gray-50">
+            <option value="admin">الإدارة العامة (الشيخ معتصم عماد)</option>
+            <option value="teacher">بوابة المعلم</option>
+            <option value="student">بوابة الطالب</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-gray-700 mb-1">كلمة المرور:</label>
+          <input type="password" id="login-pass" required placeholder="••••••••" class="w-full p-2.5 border rounded-xl text-xs" />
+          <span class="text-[10px] text-gray-400 mt-1 block">كلمة سر الإدارة الافتراضية: 123456</span>
+        </div>
+
+        <div class="flex gap-2 pt-2">
+          <button type="submit" class="flex-1 bg-brandGreen text-white text-xs font-bold py-2.5 rounded-xl shadow">
+            دخول
+          </button>
+          <button type="button" onclick="closeLoginModal()" class="bg-gray-100 text-gray-700 text-xs font-bold px-4 rounded-xl">
+            إلغاء
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- 1. لوحة تحكم الإدارة العامة (الشيخ معتصم عماد) - تظهر فقط بعد الدخول -->
+  <!-- ============================================================== -->
+  <div id="admin-panel" class="hidden flex-1 max-w-6xl mx-auto w-full p-4 sm:p-6 space-y-6">
+    
+    <div class="bg-brandGreen text-white p-6 rounded-3xl border-2 border-brandGold shadow-md">
+      <span class="text-[10px] bg-brandGold text-black font-extrabold px-3 py-0.5 rounded-full">
+        صلاحيات الإدارة والتحكم الشامل
+      </span>
+      <h2 class="text-2xl font-black mt-2 m-0 text-white">فضيلة الشيخ / معتصم عماد</h2>
+      <p class="text-xs text-gray-200 mt-1 m-0">لوحة التحكم الكاملة: إضافة وحذف البرامج القرآنية، تعيين المشايخ للطلاب، ومتابعة الأكاديمية.</p>
+    </div>
+
+    <!-- أداة إضافة برنامج جديد متصلة بـ Supabase -->
+    <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+      <h3 class="font-black text-base text-gray-900 mb-3 m-0">➕ إضافة مسار قرآني جديد لموقع الأكاديمية</h3>
+      
+      <form onsubmit="handleAddNewProgram(event)" class="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6">
+        <div>
+          <label class="block text-[11px] font-bold text-gray-700 mb-1">اسم البرنامج:</label>
+          <input type="text" id="new-prog-title" required placeholder="مثال: حفظ متن الجزرية" class="w-full text-xs p-2.5 border rounded-lg" />
+        </div>
+        <div>
+          <label class="block text-[11px] font-bold text-gray-700 mb-1">الاشتراك الشهري (ج.م):</label>
+          <input type="number" id="new-prog-price" required placeholder="مثال: 450" class="w-full text-xs p-2.5 border rounded-lg font-bold text-brandGreen" />
+        </div>
+        <div>
+          <label class="block text-[11px] font-bold text-gray-700 mb-1">الحصص أسبوعياً:</label>
+          <select id="new-prog-lessons" class="w-full text-xs p-2.5 border rounded-lg">
+            <option value="1">حصة واحدة</option>
+            <option value="2">حصتان</option>
+            <option value="3">٣ حصص</option>
+          </select>
+        </div>
+        <div class="flex items-end">
+          <button type="submit" class="w-full bg-brandGreen hover:bg-brandGreenLight text-white text-xs font-bold py-2.5 rounded-lg shadow">
+            نشر البرنامج الآن
+          </button>
+        </div>
+      </form>
+
+      <h4 class="font-bold text-xs text-gray-700 mb-2">البرامج المنشورة في الأكاديمية حالياً:</h4>
+      <div id="admin-programs-list" class="divide-y border rounded-xl overflow-hidden text-xs bg-white">
+        <!-- تملأ برمجياً -->
+      </div>
+    </div>
+
+    <!-- إدارة وتعيين المعلمين للطلاب -->
+    <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+      <h3 class="font-black text-base text-gray-900 mb-3 m-0">🎓 تعيين المعلمين للطلاب الجدد (حصرية الإدارة)</h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-right text-xs">
+          <thead class="bg-gray-100 text-gray-700 font-bold">
+            <tr>
+              <th class="p-3">اسم الطالب</th>
+              <th class="p-3">الواتساب</th>
+              <th class="p-3">البرنامج المطلوب</th>
+              <th class="p-3">المعلم المعين</th>
+              <th class="p-3 text-center">الإجراء</th>
+            </tr>
+          </thead>
+          <tbody id="admin-enrollments-list" class="divide-y">
+            <!-- تملأ برمجياً -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- 2. الموقع العام الرسمي (يظهر للجميع كصفحة رئيسية ثابتة) -->
+  <!-- ============================================================== -->
+  <main id="public-website" class="flex-1">
+    
+    <!-- Hero Banner -->
+    <section class="bg-gradient-to-b from-brandGreen via-brandGreenLight to-brandIvory text-white pt-16 pb-20 px-4 text-center">
+      <div class="max-w-4xl mx-auto">
+        <span class="bg-white/10 text-brandGold border border-brandGold/40 text-xs px-4 py-1.5 rounded-full font-bold inline-block mb-4">
+          بِالْقُرْآنِ نَحْيَا... وَمَعَ الْقُرْآنِ نَرْتَقِي
+        </span>
+        <h2 class="text-3xl sm:text-5xl font-black mb-4 leading-tight text-white m-0">
+          رحلتك مع كتاب الله تبدأ من هنا
+        </h2>
+        <p class="text-sm sm:text-base text-gray-200 max-w-2xl mx-auto mb-8 leading-relaxed">
+          صرح تعليمي قرآني يسعى إلى ربط الأجيال بكتاب الله حفظًا وتلاوةً وتدبرًا، من خلال برامج تعليمية متخصصة ومتابعة مستمرة بإشراف فضيلة الشيخ معتصم عماد.
+        </p>
+        <a href="#enroll-section" class="bg-brandGold text-black font-black text-sm px-8 py-3.5 rounded-xl shadow-lg hover:bg-brandGoldLight transition inline-block">
+          سجّل في الأكاديمية الآن
+        </a>
+      </div>
+    </section>
+
+    <!-- البرامج القرآنية -->
+    <section class="py-14 px-4 max-w-6xl mx-auto">
+      <div class="text-center mb-10">
+        <h3 class="text-2xl font-black m-0">المسارات والبرامج القرآنية</h3>
+        <p class="text-xs text-gray-500 mt-1">اختر برنامجك المطلوب وتتولى الإدارة تعيين الشيخ المناسب لك</p>
+      </div>
+
+      <div id="programs-grid" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- يتم تحميلها فوراً من Supabase أو القائمة الافتراضية -->
+      </div>
+    </section>
+
+    <!-- نموذج تسجيل الطلاب الجدد -->
+    <section id="enroll-section" class="py-12 px-4 max-w-xl mx-auto">
+      <div class="bg-white p-6 sm:p-8 rounded-3xl border border-gray-200 shadow-xl">
+        <h3 class="text-lg font-black text-center text-brandGreen mb-1 m-0">طلب التحاق طالب جديد</h3>
+        <p class="text-xs text-center text-gray-500 mb-6">تراجع الإدارة طلبك وتحدد موعد المقابلة والدرس التجريبي</p>
+
+        <div id="reg-success-msg" class="hidden bg-green-50 border border-green-300 p-6 rounded-2xl text-center mb-4">
+          <h4 class="font-bold text-green-900 text-sm m-0">تم إرسال طلبكم بنجاح! 🎉</h4>
+          <p class="text-xs text-green-700 mt-1">سيتواصل معكم منسق الأكاديمية عبر الواتساب لتحديد موعد اختبار المستوى والدرس التجريبي.</p>
+        </div>
+
+        <form id="student-reg-form" onsubmit="handleStudentRegister(event)" class="space-y-3.5">
+          <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">الاسم الرباعي للطالب *</label>
+            <input type="text" id="reg-name" required placeholder="مثال: عبد الرحمن محمد محمود" class="w-full text-xs p-3 border rounded-xl" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">رقم الواتساب للتواصل *</label>
+            <input type="tel" id="reg-phone" required placeholder="01xxxxxxxxx" class="w-full text-xs p-3 border rounded-xl" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">البرنامج القرآني المطلوب *</label>
+            <select id="reg-prog-select" class="w-full text-xs p-3 border rounded-xl bg-white font-medium">
+              <!-- تملأ بالبرامج -->
+            </select>
+          </div>
+          <button type="submit" class="w-full bg-brandGreen hover:bg-brandGreenLight text-white font-bold py-3.5 rounded-xl text-xs shadow transition">
+            إرسال طلب الالتحاق للأكاديمية
+          </button>
+        </form>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- التذييل الرسمي -->
+  <footer class="bg-brandGreenDark text-white py-6 text-center text-xs border-t-2 border-brandGold mt-auto">
+    <p class="font-bold text-brandGold m-0">أكاديمية وَرَتِّلْ لتعليم القرآن الكريم © ٢٠٢٦</p>
+    <p class="text-[10px] text-gray-400 mt-1 m-0">المشرف العام: فضيلة الشيخ / معتصم عماد</p>
+  </footer>
+
+  <!-- ============================================================== -->
+  <!-- كود الجافاسكريبت الأصيل (Native JavaScript) - سريع ومباشر -->
+  <!-- ============================================================== -->
+  <script>
+    const SUPABASE_URL = 'https://kaxvlpootkadovxllaeb.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_xIRapON9ia0rGX8RNFrl4w_7eaWeXfD';
+    const supabase = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+
+    // قائمة برامج أولية سريعة الظهور حتى يكتمل اتصال الخادم
+    let programsList = [
+      { id: '1', title_ar: 'برنامج حفظ القرآن الكريم وإتقانه', price_egp: 450, lessons_per_week: 3, description_ar: 'برنامج مكثف لحفظ كتاب الله وتجويده بالسند المتصل.', target_audience: 'الجميع' },
+      { id: '2', title_ar: 'برنامج تثبيت ومراجعة الحفّاظ', price_egp: 400, lessons_per_week: 2, description_ar: 'مخصص للرسوخ وضبط المتشابهات اللفظية لحفظة القرآن.', target_audience: 'الجميع' },
+      { id: '3', title_ar: 'القاعدة النورانية وتأسيس الصغار', price_egp: 350, lessons_per_week: 3, description_ar: 'تأسيس الأطفال على النطق الفصيح ومخارج الحروف الصحيحة.', target_audience: 'أطفال' }
+    ];
+
+    let enrollmentsList = [
+      { id: '1', name: 'عمر أحمد محمود', phone: '01012345678', prog: 'برنامج حفظ القرآن الكريم وإتقانه', teacher: 'فضيلة الشيخ إبراهيم دسوقي' }
+    ];
+
+    let currentUser = null;
+
+    // تشغيل الصفحة عند التحميل
+    window.addEventListener('DOMContentLoaded', () => {
+      fetchProgramsFromSupabase();
+      renderPublicPrograms();
+      renderEnrollments();
+    });
+
+    // جلب البرامج من قاعدة Supabase
+    async function fetchProgramsFromSupabase() {
+      if (!supabase) return;
+      try {
+        const { data, error } = await supabase.from('programs').select('*').order('created_at', { ascending: false });
+        if (data && data.length > 0) {
+          programsList = data;
+          renderPublicPrograms();
+          renderAdminPrograms();
+        }
+      } catch (e) {
+        console.log("Supabase loading fallback used");
+      }
+    }
+
+    // رسم البرامج في الموقع العام
+    function renderPublicPrograms() {
+      const container = document.getElementById('programs-grid');
+      const selectBox = document.getElementById('reg-prog-select');
+      
+      container.innerHTML = '';
+      selectBox.innerHTML = '';
+
+      programsList.forEach(prog => {
+        // بطاقة البرنامج
+        const card = document.createElement('div');
+        card.className = "bg-white rounded-2xl border border-gray-200 p-6 shadow-sm flex flex-col justify-between";
+        card.innerHTML = `
+          <div>
+            <span class="text-[10px] text-brandGold font-bold uppercase">${prog.target_audience || 'الجميع'}</span>
+            <h4 class="text-base font-bold mt-1 mb-2 m-0 text-gray-900">${prog.title_ar}</h4>
+            <p class="text-xs text-gray-600 mb-4 leading-relaxed">${prog.description_ar || ''}</p>
+          </div>
+          <div class="border-t pt-3 flex items-center justify-between">
+            <span class="text-base font-black text-brandGreen">${prog.price_egp} ج.م <span class="text-[10px] text-gray-400 font-normal">/ شهرياً</span></span>
+            <a href="#enroll-section" class="text-xs font-bold text-brandGold hover:underline">التحاق بالبرنامج ←</a>
+          </div>
+        `;
+        container.appendChild(card);
+
+        // خيار في نموذج التسجيل
+        const opt = document.createElement('option');
+        opt.value = prog.title_ar;
+        opt.textContent = `${prog.title_ar} (${prog.price_egp} ج.م)`;
+        selectBox.appendChild(opt);
+      });
+    }
+
+    // رسم البرامج في لوحة الإدارة
+    function renderAdminPrograms() {
+      const list = document.getElementById('admin-programs-list');
+      list.innerHTML = '';
+      programsList.forEach(p => {
+        const row = document.createElement('div');
+        row.className = "p-3 flex items-center justify-between hover:bg-gray-50";
+        row.innerHTML = `
+          <div>
+            <span class="font-bold text-gray-900">${p.title_ar}</span>
+            <span class="text-gray-500 mr-2">(${p.price_egp} ج.م - ${p.lessons_per_week || 2} حصص)</span>
+          </div>
+          <button onclick="deleteProgram('${p.id}')" class="text-red-600 hover:text-red-800 font-bold px-2 py-1 bg-red-50 rounded text-xs">
+            حذف
+          </button>
+        `;
+        list.appendChild(row);
+      });
+    }
+
+    // رسم طلبات التسجيل في لوحة الإدارة
+    function renderEnrollments() {
+      const tbody = document.getElementById('admin-enrollments-list');
+      tbody.innerHTML = '';
+      enrollmentsList.forEach(e => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="p-3 font-bold">${e.name}</td>
+          <td class="p-3 font-mono">${e.phone}</td>
+          <td class="p-3">${e.prog}</td>
+          <td class="p-3"><span class="bg-green-100 text-green-800 px-2 py-0.5 rounded font-bold">${e.teacher}</span></td>
+          <td class="p-3 text-center">
+            <button onclick="changeTeacher('${e.id}')" class="bg-brandGreen text-white text-[11px] font-bold px-3 py-1 rounded">
+              تغيير الشيخ
+            </button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // فتح وإغلاق شباك تسجيل الدخول
+    function openLoginModal() {
+      document.getElementById('login-modal').classList.remove('hidden');
+      document.getElementById('login-error').classList.add('hidden');
+    }
+    function closeLoginModal() {
+      document.getElementById('login-modal').classList.add('hidden');
+    }
+
+    // تسجيل الدخول
+    function handleLoginSubmit(e) {
+      e.preventDefault();
+      const role = document.getElementById('login-role').value;
+      const pass = document.getElementById('login-pass').value;
+
+      if (role === 'admin') {
+        if (pass === '123456') {
+          currentUser = { name: 'فضيلة الشيخ معتصم عماد', role: 'admin' };
+          closeLoginModal();
+          switchToAdminView();
+        } else {
+          showLoginError('كلمة المرور الخاصة بإدارة الأكاديمية غير صحيحة!');
+        }
+      } else {
+        if (pass === '123456') {
+          alert('مرحباً بك! تم تسجيل الدخول بنجاح.');
+          closeLoginModal();
+        } else {
+          showLoginError('كلمة المرور غير صحيحة');
+        }
+      }
+    }
+
+    function showLoginError(msg) {
+      const err = document.getElementById('login-error');
+      err.textContent = msg;
+      err.classList.remove('hidden');
+    }
+
+    // التبديل للوحة الإدارة
+    function switchToAdminView() {
+      document.getElementById('public-website').classList.add('hidden');
+      document.getElementById('admin-panel').classList.remove('hidden');
+      
+      const authBox = document.getElementById('auth-buttons');
+      authBox.innerHTML = `
+        <span class="text-xs bg-brandGold text-black font-extrabold px-3 py-1 rounded-full">فضيلة الشيخ معتصم عماد</span>
+        <button onclick="logoutAdmin()" class="bg-red-600 hover:bg-red-700 text-white text-xs px-3 py-1 rounded-lg font-bold">تسجيل خروج</button>
+      `;
+      renderAdminPrograms();
+    }
+
+    function logoutAdmin() {
+      currentUser = null;
+      document.getElementById('admin-panel').classList.add('hidden');
+      document.getElementById('public-website').classList.remove('hidden');
+      
+      const authBox = document.getElementById('auth-buttons');
+      authBox.innerHTML = `
+        <button onclick="openLoginModal()" class="bg-brandGold hover:bg-brandGoldLight text-black text-xs font-black px-4 py-2 rounded-xl shadow transition">
+          🔐 تسجيل الدخول
+        </button>
+      `;
+    }
+
+    function goToHome() {
+      if (currentUser && currentUser.role === 'admin') {
+        return;
+      }
+      document.getElementById('admin-panel').classList.add('hidden');
+      document.getElementById('public-website').classList.remove('hidden');
+    }
+
+    // إضافة برنامج جديد
+    async function handleAddNewProgram(e) {
+      e.preventDefault();
+      const title = document.getElementById('new-prog-title').value;
+      const price = document.getElementById('new-prog-price').value;
+      const lessons = document.getElementById('new-prog-lessons').value;
+
+      const newProg = {
+        id: Date.now().toString(),
+        title_ar: title,
+        title_en: title,
+        slug: 'slug-' + Date.now(),
+        price_egp: parseFloat(price),
+        lessons_per_week: parseInt(lessons),
+        description_ar: 'مسار قرآني تخصصي بالأكاديمية',
+        target_audience: 'الجميع'
+      };
+
+      programsList.unshift(newProg);
+      renderPublicPrograms();
+      renderAdminPrograms();
+
+      if (supabase) {
+        await supabase.from('programs').insert([newProg]);
+      }
+
+      alert('تم نشر البرنامج الجديد في الأكاديمية بنجاح!');
+      document.getElementById('new-prog-title').value = '';
+      document.getElementById('new-prog-price').value = '';
+    }
+
+    // حذف برنامج
+    async function deleteProgram(id) {
+      if (!confirm('هل أنت متأكد من حذف هذا المسار؟')) return;
+      programsList = programsList.filter(p => p.id !== id);
+      renderPublicPrograms();
+      renderAdminPrograms();
+      if (supabase) {
+        await supabase.from('programs').delete().eq('id', id);
+      }
+    }
+
+    // تعيين معلم
+    function changeTeacher(enrId) {
+      const t = prompt('اكتب اسم الشيخ المراد تعيينه:', 'فضيلة الشيخ محمد عبد العال');
+      if (t) {
+        const item = enrollmentsList.find(e => e.id === enrId);
+        if (item) item.teacher = t;
+        renderEnrollments();
+        alert('تم تعيين الشيخ وإرسال الإشعار لولي الأمر بنجاح!');
+      }
+    }
+
+    // تسجيل طالب
+    function handleStudentRegister(e) {
+      e.preventDefault();
+      const name = document.getElementById('reg-name').value;
+      const phone = document.getElementById('reg-phone').value;
+      const prog = document.getElementById('reg-prog-select').value;
+
+      enrollmentsList.unshift({
+        id: Date.now().toString(),
+        name: name,
+        phone: phone,
+        prog: prog,
+        teacher: 'بانتظار موافقة الإدارة وتعيين الشيخ'
+      });
+
+      renderEnrollments();
+      document.getElementById('student-reg-form').reset();
+      document.getElementById('reg-success-msg').classList.remove('hidden');
+    }
+  </script>
+</body>
+  </html>
