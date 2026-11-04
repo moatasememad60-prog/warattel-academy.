@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>أكاديمية ورتّل لتعليم القرآن الكريم | Warattel Quran Academy</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    body { font-family: 'Cairo', sans-serif; background-color: #FAF8F5; margin: 0; padding: 0; color: #111111; }
+    .quran-font { font-family: 'Amiri', serif; }
+    @keyframes pulse-green {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(37, 211, 102, 0.7); }
+      50% { transform: scale(1.06); box-shadow: 0 0 0 14px rgba(37, 211, 102, 0); }
+    }
+    .wa-float { animation: pulse-green 2s infinite; }
+  </style>
+
+  <script>
+    // -------------------------------------------------------------
+    // الربط السحابي المباشر بقاعدة بيانات Supabase
+    // -------------------------------------------------------------
+    var SUPABASE_URL = 'https://kaxvlpootkadovxllaeb.supabase.co';
+    var SUPABASE_KEY = 'sb_publishable_xIRapON9ia0rGX8RNFrl4w_7eaWeXfD';
+    var db = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+
+    var currentUser = JSON.parse(localStorage.getItem('w_session')) || null;
+    var progsList = [];
+    var allUsers = [];
+    var lessonRecords = [];
+    var announcements = ['مرحباً بكم في أكاديمية ورتّل لتعليم القرآن الكريم تحت إشراف فضيلة الشيخ معتصم عماد.'];
+    var activeAdminTab = 'students';
+
+    // مزامنة السيرفر السحابي
+    async function loadCloud() {
+      if (!db) return;
+      try {
+        var pRes = await db.from('academy_programs').select('*').order('created_at', { ascending: false });
+        if (pRes.data && pRes.data.length > 0) progsList = pRes.data;
+
+        var uRes = await db.from('academy_users').select('*').order('created_at', { ascending: false });
+        if (uRes.data) allUsers = uRes.data;
+
+        var rRes = await db.from('academy_records').select('*').order('created_at', { ascending: false });
+        if (rRes.data) lessonRecords = rRes.data;
+
+        var aRes = await db.from('academy_announcements').select('*').order('created_at', { ascending: false });
+        if (aRes.data && aRes.data.length > 0) announcements = aRes.data.map(function(x){ return x.message; });
+
+        renderHome();
+        populateProgramDropdowns();
+
+        if (currentUser) {
+          // تحديث بيانات المستخدم الحالي
+          var fresh = allUsers.find(function(u){ return u.phone === currentUser.phone; });
+          if (fresh) currentUser = Object.assign(currentUser, fresh);
+
+          if (currentUser.role === 'admin') renderAdmin();
+          if (currentUser.role === 'student') renderStudent();
+          if (currentUser.role === 'parent') renderParent();
+          if (currentUser.role === 'teacher') renderTeacher();
+        }
+      } catch (err) {
+        console.error('Cloud load error:', err);
+      }
+    }
+
+    function showScreen(name) {
+      var screens = ['home', 'auth', 'student', 'parent', 'teacher', 'admin'];
+      screens.forEach(function(s) {
+        var el = document.getElementById('screen-' + s);
+        if (el) el.style.display = 'none';
+      });
+      var target = document.getElementById('screen-' + name);
+      if (target) target.style.display = 'block';
+
+      updateNav();
+      window.scrollTo(0, 0);
+    }
+
+    function updateNav() {
+      var box = document.getElementById('nav-box');
+      if (!box) return;
+      if (currentUser) {
+        box.innerHTML = 
+          '<div class="flex items-center gap-1.5">' +
+            '<span class="text-[11px] bg-[#c9a34a] text-black font-extrabold px-3 py-1 rounded-full whitespace-nowrap">' + currentUser.full_name + '</span>' +
+            '<button onclick="logout()" class="bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg">خروج</button>' +
+          '</div>';
+      } else {
+        box.innerHTML = 
+          '<div class="flex items-center gap-1.5">' +
+            '<button onclick="openAuthScreen(\'login\')" class="text-white hover:text-[#c9a34a] text-xs font-bold px-2.5 py-1.5">تسجيل الدخول</button>' +
+            '<button onclick="openAuthScreen(\'reg\')" class="bg-[#c9a34a] hover:bg-[#dfb858] text-black text-xs font-black px-3.5 py-1.5 rounded-xl shadow">✨ إنشاء حساب</button>' +
+          '</div>';
+      }
+    }
+
+    function logout() {
+      currentUser = null;
+      localStorage.removeItem('w_session');
+      showScreen('home');
+    }
+
+    // النافذة السرية المشفرة للإدارة
+    function openSecretModal() {
+      document.getElementById('secret-modal').style.display = 'flex';
+      document.getElementById('secret-err').style.display = 'none';
+      document.getElementById('adm-phone').value = '';
+      document.getElementById('adm-pass').value = '';
+    }
+    function closeSecretModal() {
+      document.getElementById('secret-modal').style.display = 'none';
+    }
+
+    function verifySecret() {
+      var p = document.getElementById('adm-phone').value.trim();
+      var pass = document.getElementById('adm-pass').value.trim();
+      var err = document.getElementById('secret-err');
+
+      if (p === '01040263031' && pass === 'Moatasem30') {
+        currentUser = { full_name: 'فضيلة الشيخ معتصم عماد', role: 'admin', phone: p };
+        closeSecretModal();
+        showScreen('admin');
+        renderAdmin();
+      } else {
+        err.style.display = 'block';
+        err.textContent = 'بيانات الدخول غير صحيحة!';
+      }
+    }
+
+    // تعبئة قائمة البرامج في نماذج التسجيل
+    function populateProgramDropdowns() {
+      var select = document.getElementById('reg-stu-program');
+      if (!select) return;
+      select.innerHTML = '';
+      progsList.forEach(function(p) {
+        var opt = document.createElement('option');
+        opt.value = p.title;
+        opt.textContent = p.title + ' (' + p.price + ' ج.م)';
+        select.appendChild(opt);
+      });
+    }
+
+    // -------------------------------------------------------------
+    // التسجيل الموحد بالحسابات وكلمات المرور
+    // -------------------------------------------------------------
+    async function submitStudentRegistration() {
+      var name = document.getElementById('reg-stu-name').value.trim();
+      var phone = document.getElementById('reg-stu-phone').value.trim();
+      var pass = document.getElementById('reg-stu-pass').value.trim();
+      var wa = document.getElementById('reg-stu-wa').value.trim() || phone;
+      var age = document.getElementById('reg-stu-age').value.trim();
+      var gender = document.getElementById('reg-stu-gender').value;
+      var gov = document.getElementById('reg-stu-gov').value.trim();
+      var qual = document.getElementById('reg-stu-qual').value.trim();
+      var level = document.getElementById('reg-stu-level').value;
+      var memo = document.getElementById('reg-stu-memo').value;
+      var timing = document.getElementById('reg-stu-timing').value;
+      var prog = document.getElementById('reg-stu-program').value;
+      var gName = document.getElementById('reg-stu-gname').value.trim();
+      var gPhone = document.getElementById('reg-stu-gphone').value.trim();
+
+      if (!name || !phone || !pass) return alert('برجاء كتابة الاسم الرباعي ورقم الهاتف وكلمة المرور');
+
+      var userObj = {
+        role: 'student',
+        full_name: name,
+        phone: phone,
+        password: pass,
+        whatsapp: wa,
+        age: parseInt(age) || 0,
+        gender: gender,
+        governorate: gov,
+        qualification: qual,
+        quran_level: level,
+        memorized_portion: memo,
+        preferred_timing: timing,
+        program: prog,
+        guardian_name: gName,
+        guardian_phone: gPhone,
+        assigned_teacher: 'بانتظار تعيين الشيخ'
+      };
+
+      var res = await db.from('academy_users').insert([userObj]).select();
+      if (res.error) {
+        if (res.error.message.includes('unique')) alert('رقم الهاتف هذا مسجل لدينا مسبقاً! يُرجى تسجيل الدخول بدلاً من إنشاء حساب.');
+        else alert('خطأ في السيرفر: ' + res.error.message);
+      } else {
+        currentUser = res.data[0];
+        localStorage.setItem('w_session', JSON.stringify(currentUser));
+        alert('مرحباً بك يا ' + name + '! تم إنشاء حسابك القرآني بنجاح.');
+        await loadCloud();
+        showScreen('student');
+      }
+    }
+
+    async function submitParentRegistration() {
+      var name = document.getElementById('reg-par-name').value.trim();
+      var phone = document.getElementById('reg-par-phone').value.trim();
+      var pass = document.getElementById('reg-par-pass').value.trim();
+      var wa = document.getElementById('reg-par-wa').value.trim() || phone;
+      var child = document.getElementById('reg-par-child').value.trim();
+
+      if (!name || !phone || !pass || !child) return alert('برجاء استكمال جميع البيانات واسم ابنك وكلمة المرور');
+
+      var userObj = {
+        role: 'parent',
+        full_name: name,
+        phone: phone,
+        password: pass,
+        whatsapp: wa,
+        child_name: child,
+        parent_approved: false
+      };
+
+      var res = await db.from('academy_users').insert([userObj]).select();
+      if (res.error) {
+        alert('خطأ: ' + res.error.message);
+      } else {
+        currentUser = res.data[0];
+        localStorage.setItem('w_session', JSON.stringify(currentUser));
+        alert('تم تسجيل حسابك بنجاح! طلب ربطك بحساب ابنك (' + child + ') أرسل للإدارة للموافقة.');
+        await loadCloud();
+        showScreen('parent');
+      }
+    }
+
+    async function submitTeacherRegistration() {
+      var name = document.getElementById('reg-tea-name').value.trim();
+      var phone = document.getElementById('reg-tea-phone').value.trim();
+      var pass = document.getElementById('reg-tea-pass').value.trim();
+      var spec = document.getElementById('reg-tea-spec').value.trim();
+
+      if (!name || !phone || !pass) return alert('برجاء إدخال اسم الشيخ ورقم الهاتف وكلمة المرور');
+
+      var userObj = {
+        role: 'teacher',
+        full_name: name,
+        phone: phone,
+        password: pass,
+        teacher_spec: spec || 'معلم قرآن معتمد'
+      };
+
+      var res = await db.from('academy_users').insert([userObj]).select();
+      if (res.error) {
+        alert('خطأ: ' + res.error.message);
+      } else {
+        currentUser = res.data[0];
+        localStorage.setItem('w_session', JSON.stringify(currentUser));
+        alert('مرحباً بفضيلة الشيخ، تم تفعيل حسابك التعليمي بنجاح.');
+        await loadCloud();
+        showScreen('teacher');
+      }
+    }
+
+    // تسجيل الدخول بالهاتف وكلمة المرور
+    async function handleLoginSubmit() {
+      var phone = document.getElementById('login-phone').value.trim();
+      var pass = document.getElementById('login-pass').value.trim();
+      if (!phone || !pass) return alert('أدخل رقم الهاتف وكلمة المرور');
+
+      // فحص المشرف العام
+      if (phone === '01040263031' && pass === 'Moatasem30') {
+        currentUser = { full_name: 'فضيلة الشيخ معتصم عماد', role: 'admin', phone: phone };
+        localStorage.setItem('w_session', JSON.stringify(currentUser));
+        showScreen('admin');
+        renderAdmin();
+        return;
+      }
+
+      // فحص المستخدمين في السيرفر
+      var res = await db.from('academy_users').select('*').eq('phone', phone).eq('password', pass);
+      if (res.data && res.data.length > 0) {
+        currentUser = res.data[0];
+        localStorage.setItem('w_session', JSON.stringify(currentUser));
+        alert('مرحباً بك يا ' + currentUser.full_name + '!');
+        await loadCloud();
+        showScreen(currentUser.role);
+      } else {
+        alert('رقم الهاتف أو كلمة المرور غير صحيحة!');
+      }
+    }
+
+    // -------------------------------------------------------------
+    // شاشات المستخدمين (طالب، ولي أمر، معلم، إدارة)
+    // -------------------------------------------------------------
+    function renderHome() {
+      var box = document.getElementById('home-progs');
+      if (!box) return;
+      box.innerHTML = '';
+      progsList.forEach(function(p) {
+        var div = document.createElement('div');
+        div.className = "bg-white rounded-2xl border p-5 shadow-sm flex flex-col justify-between hover:shadow-md transition";
+        div.innerHTML = 
+          '<div><span class="text-[10px] text-[#c9a34a] font-bold uppercase">' + (p.target || 'الجميع') + '</span>' +
+          '<h4 class="font-bold text-base text-gray-900 mt-1 mb-2">' + p.title + '</h4>' +
+          '<p class="text-xs text-gray-600 mb-4 leading-relaxed">' + (p.description || '') + '</p></div>' +
+          '<div class="border-t pt-3 flex items-center justify-between">' +
+            '<span class="text-base font-black text-[#0c4a2c]">' + p.price + ' ج.م <span class="text-[10px] text-gray-400 font-normal">/ شهرياً</span></span>' +
+            '<button onclick="openAuthScreen(\'reg\')" class="text-xs font-bold text-[#c9a34a] hover:underline">سجّل الآن ←</button>' +
+          '</div>';
+        box.appendChild(div);
+      });
+    }
+
+    function renderStudent() {
+      if (!currentUser) return;
+      document.getElementById('dash-stu-name').textContent = currentUser.full_name;
+      document.getElementById('dash-stu-prog').textContent = currentUser.program || 'مسار حفظ القرآن الكريم';
+      document.getElementById('dash-stu-sheikh').textContent = currentUser.assigned_teacher || 'بانتظار تعيين الشيخ من الإدارة';
+      document.getElementById('dash-stu-banner').textContent = '📢 تعميم الإدارة: ' + (announcements[0] || 'أهلاً بكم في ورتّل');
+
+      // جلب سجلات الطالب الخاصة برقم هاتفه
+      var myLogs = lessonRecords.filter(function(r){ return r.student_phone === currentUser.phone; });
+      var tbody = document.getElementById('stu-logs-tbody');
+      tbody.innerHTML = '';
+      if (myLogs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-gray-400">لا توجد تسميعات مسجلة بعد. عند بدء الحلقة مع الشيخ ستظهر درجاتك وملاحظاته هنا فوراً.</td></tr>';
+      } else {
+        myLogs.forEach(function(l) {
+          var tr = document.createElement('tr');
+          tr.innerHTML = 
+            '<td class="p-3 font-mono">' + new Date(l.created_at).toLocaleDateString('ar-EG') + '</td>' +
+            '<td class="p-3 font-bold text-[#0c4a2c]">' + (l.new_memo || '-') + ' (' + (l.new_grade || 10) + '/10)</td>' +
+            '<td class="p-3 font-bold">' + (l.rev_memo || '-') + ' (' + (l.rev_grade || 10) + '/10)</td>' +
+            '<td class="p-3 font-bold text-[#c9a34a]">' + (l.tajweed_grade || 10) + '/10</td>' +
+            '<td class="p-3 text-xs text-gray-600">' + (l.notes || 'حفظ متقن مبارك') + '</td>';
+          tbody.appendChild(tr);
+        });
+      }
+
+      // موعد الحلقة القادمة
+      var nextL = myLogs[0] ? myLogs[0].next_lesson : 'سيتم تحديد الموعد من الشيخ المتابع قريباً';
+      document.getElementById('dash-stu-next').textContent = nextL;
+
+      // قائمة المسارات وسداد الاشتراك
+      var pGrid = document.getElementById('stu-progs-grid');
+      pGrid.innerHTML = '';
+      progsList.forEach(function(p) {
+        var div = document.createElement('div');
+        div.className = "bg-gray-50 rounded-xl border p-4 flex flex-col justify-between";
+        div.innerHTML = 
+          '<div><h5 class="font-bold text-xs text-gray-900 mb-1">' + p.title + '</h5><div class="text-sm font-black text-[#0c4a2c] mb-3">' + p.price + ' ج.م</div></div>' +
+          '<button onclick="chooseSubProgram(\'' + p.title + '\', ' + p.price + ')" class="w-full bg-[#0c4a2c] text-white text-xs font-bold py-2 rounded-lg hover:bg-[#145c38]">اختيار وسداد</button>';
+        pGrid.appendChild(div);
+      });
+    }
+
+    function chooseSubProgram(title, price) {
+      document.getElementById('stu-pay-box').style.display = 'block';
+      document.getElementById('stu-pay-info').textContent = title + ' (' + price + ' ج.م)';
+      var wa = document.getElementById('stu-pay-walink');
+      var msg = encodeURIComponent('السلام عليكم إدارة ورتّل، أنا الطالب: ' + currentUser.full_name + '، سددت اشتراك: ' + title + ' (' + price + ' ج.م) وهذا الإيصال.');
+      wa.href = 'https://wa.me/201040263031?text=' + msg;
+      window.scrollTo({ top: document.getElementById('stu-pay-box').offsetTop - 50, behavior: 'smooth' });
+    }
+
+    function renderParent() {
+      if (!currentUser) return;
+      document.getElementById('dash-par-name').textContent = currentUser.full_name;
+      document.getElementById('dash-par-child').textContent = currentUser.child_name;
+
+      var statusBox = document.getElementById('par-status-box');
+      var contentBox = document.getElementById('par-content-box');
+
+      if (!currentUser.parent_approved) {
+        statusBox.innerHTML = '<span class="bg-amber-100 text-amber-900 px-3 py-1.5 rounded-xl font-bold text-xs">⏳ طلب الربط قيد مراجعة الإدارة للتأكد من صلة القرابة</span>';
+        contentBox.style.display = 'none';
+      } else {
+        statusBox.innerHTML = '<span class="bg-green-100 text-green-900 px-3 py-1.5 rounded-xl font-bold text-xs">✅ معتمد ومربوط رسمياً بحساب الابن</span>';
+        contentBox.style.display = 'block';
+
+        // البحث عن سجلات الابن
+        var childUser = allUsers.find(function(u){ return u.full_name === currentUser.child_name; });
+        var childPhone = childUser ? childUser.phone : '';
+        var childLogs = lessonRecords.filter(function(r){ return r.student_phone === childPhone; });
+
+        var tbody = document.getElementById('par-logs-tbody');
+        tbody.innerHTML = '';
+        if (childLogs.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-400">لا توجد تسميعات بعد للابن.</td></tr>';
+        } else {
+          childLogs.forEach(function(l) {
+            var tr = document.createElement('tr');
+            tr.innerHTML = 
+              '<td class="p-3">' + new Date(l.created_at).toLocaleDateString('ar-EG') + '</td>' +
+              '<td class="p-3 font-bold text-[#0c4a2c]">' + l.new_memo + ' (' + l.new_grade + '/10)</td>' +
+              '<td class="p-3 font-bold">' + l.rev_memo + ' (' + l.rev_grade + '/10)</td>' +
+              '<td class="p-3 text-gray-600">' + (l.notes || 'ممتاز') + '</td>';
+            tbody.appendChild(tr);
+          });
+        }
+      }
+    }
+
+    function renderTeacher() {
+      if (!currentUser) return;
+      document.getElementById('dash-tea-name').textContent = currentUser.full_name;
+
+      // الطلاب المعينون لهذا الشيخ فقط
+      var myStudents = allUsers.filter(function(u){ return u.role === 'student' && u.assigned_teacher === currentUser.full_name; });
+      var select = document.getElementById('tea-student-select');
+      select.innerHTML = '';
+
+      if (myStudents.length === 0) {
+        var opt = document.createElement('option');
+        opt.textContent = 'لا يوجد طلاب معينون لك حالياً من الإدارة';
+        select.appendChild(opt);
+      } else {
+        myStudents.forEach(function(s) {
+          var opt = document.createElement('option');
+          opt.value = s.phone;
+          opt.textContent = s.full_name + ' (' + s.program + ')';
+          select.appendChild(opt);
+        });
+      }
+    }
+
+    // رصد الشيخ للدرس وحفظه سحابياً ليصل للطالب وولي أمره
+    async function teacherSaveLog() {
+      var stuPhone = document.getElementById('tea-student-select').value;
+      if (!stuPhone || stuPhone.includes('لا يوجد')) return alert('لا يوجد طالب مختار');
+
+      var newM = document.getElementById('t-new-memo').value.trim();
+      var newG = document.getElementById('t-new-grade').value;
+      var revM = document.getElementById('t-rev-memo').value.trim();
+      var revG = document.getElementById('t-rev-grade').value;
+      var tajG = document.getElementById('t-taj-grade').value;
+      var exam = document.getElementById('t-exam-grade').value;
+      var nextL = document.getElementById('t-next-lesson').value.trim();
+      var notes = document.getElementById('t-notes').value.trim();
+
+      var recordObj = {
+        student_phone: stuPhone,
+        teacher_name: currentUser.full_name,
+        new_memo: newM || 'لم يُحدد',
+        new_grade: parseFloat(newG) || 10,
+        rev_memo: revM || 'لم يُحدد',
+        rev_grade: parseFloat(revG) || 10,
+        tajweed_grade: parseFloat(tajG) || 10,
+        exam_score: parseFloat(exam) || 0,
+        next_lesson: nextL || 'الحلقة القادمة في نفس الموعد',
+        notes: notes || 'ما شاء الله تبارك الله، حفظ متقن ومبارك.'
+      };
+
+      var res = await db.from('academy_records').insert([recordObj]);
+      if (res.error) {
+        alert('خطأ في الحفظ السحابي: ' + res.error.message);
+      } else {
+        alert('تم حفظ إنجاز الحلقة بنجاح ووصل لصفحة الطالب وولي أمره فوراً!');
+        document.getElementById('t-new-memo').value = '';
+        document.getElementById('t-rev-memo').value = '';
+        document.getElementById('t-notes').value = '';
+        await loadCloud();
+      }
+    }
+
+    // -------------------------------------------------------------
+    // لوحة تحكم فضيلة الشيخ معتصم عماد (المشرف العام)
+    // -------------------------------------------------------------
+    function renderAdmin() {
+      var root = document.getElementById('admin-content-box');
+      if (!root) return;
+
+      var pendingParents = allUsers.filter(function(u){ return u.role === 'parent' && !u.parent_approved; });
+      var students = allUsers.filter(function(u){ return u.role === 'student'; });
+      var teachers = allUsers.filter(function(u){ return u.role === 'teacher'; });
+
+      var tabs = [
+        { id: 'students', name: 'الطلاب وتعيين المشايخ (' + students.length + ')' },
+        { id: 'parents', name: 'اعتماد ربط أولياء الأمور (' + pendingParents.length + ')' },
+        { id: 'teachers', name: 'المعلمون (' + teachers.length + ')' },
+        { id: 'progs', name: 'البرامج والمسارات (' + progsList.length + ')' },
+        { id: 'broadcast', name: 'بث إشعار للكل' }
+      ];
+
+      var html = '<div class="flex gap-2 border-b pb-2 overflow-x-auto text-xs">';
+      tabs.forEach(function(t) {
+        var active = (t.id === activeAdminTab) ? 'bg-[#0c4a2c] text-white font-bold shadow' : 'bg-gray-100 text-gray-700 font-bold';
+        html += '<button onclick="setAdminTab(\'' + t.id + '\')" class="px-4 py-2 rounded-xl whitespace-nowrap ' + active + '">' + t.name + '</button>';
+      });
+      html += '</div>';
+
+      // 1. تبويب الطلاب
+      if (activeAdminTab === 'students') {
+        html += '<div class="bg-white p-5 rounded-2xl border shadow-sm space-y-4 mt-4">' +
+          '<h3 class="font-black text-sm text-gray-900 m-0">قائمة الطلاب المسجلين سحابياً:</h3>' +
+          '<div class="overflow-x-auto"><table class="w-full text-right text-xs"><thead class="bg-gray-100 font-bold"><tr><th class="p-3">الطالب</th><th class="p-3">الهاتف</th><th class="p-3">البرنامج</th><th class="p-3">المستوى</th><th class="p-3">الشيخ المعيّن</th><th class="p-3 text-center">التحكم</th></tr></thead><tbody class="divide-y">';
+        students.forEach(function(s) {
+          html += '<tr>' +
+            '<td class="p-3 font-bold">' + s.full_name + '<div class="text-[10px] text-gray-400 font-normal">' + (s.governorate || 'مصر') + ' - ' + (s.age || '') + ' سنة</div></td>' +
+            '<td class="p-3 font-mono">' + s.phone + '</td>' +
+            '<td class="p-3">' + s.program + '</td>' +
+            '<td class="p-3">' + (s.memorized_portion || 'مبتدئ') + '</td>' +
+            '<td class="p-3"><span class="bg-green-100 text-green-800 px-2 py-0.5 rounded font-bold">' + (s.assigned_teacher || 'غير محدد') + '</span></td>' +
+            '<td class="p-3 text-center space-x-1">' +
+              '<button onclick="adminAssignSheikhPrompt(\'' + s.id + '\')" class="bg-[#0c4a2c] text-white font-bold px-2.5 py-1 rounded">تعيين الشيخ</button>' +
+              '<button onclick="adminDeleteUser(\'' + s.id + '\')" class="bg-red-100 text-red-700 font-bold px-2 py-1 rounded">حذف</button>' +
+            '</td>' +
+          '</tr>';
+        });
+        html += '</tbody></table></div></div>';
+      }
+
+      // 2. تبويب اعتماد أولياء الأمور
+      else if (activeAdminTab === 'parents') {
+        html += '<div class="bg-white p-5 rounded-2xl border shadow-sm space-y-4 mt-4">' +
+          '<h3 class="font-black text-sm text-gray-900 m-0">طلبات ربط أولياء الأمور بأبنائهم:</h3>' +
+          '<div class="overflow-x-auto"><table class="w-full text-right text-xs"><thead class="bg-gray-100 font-bold"><tr><th class="p-3">ولي الأمر</th><th class="p-3">الهاتف</th><th class="p-3">اسم الابن المطلوب متابعته</th><th class="p-3">حالة الاعتماد</th><th class="p-3 text-center">الإجراء</th></tr></thead><tbody class="divide-y">';
+        var parents = allUsers.filter(function(u){ return u.role === 'parent'; });
+        parents.forEach(function(p) {
+          html += '<tr>' +
+            '<td class="p-3 font-bold">' + p.full_name + '</td>' +
+            '<td class="p-3 font-mono">' + p.phone + '</td>' +
+            '<td class="p-3 font-bold text-[#0c4a2c]">' + p.child_name + '</td>' +
+            '<td class="p-3">' + (p.parent_approved ? '<span class="text-green-600 font-bold">معتمد ✅</span>' : '<span class="text-amber-600 font-bold">بانتظار موافقتك ⏳</span>') + '</td>' +
+            '<td class="p-3 text-center">' +
+              (!p.parent_approved ? '<button onclick="adminApproveParent(\'' + p.id + '\')" class="bg-green-700 text-white font-bold px-3 py-1 rounded">موافقة واعتماد الربط</button>' : '<span class="text-gray-400">تم الربط</span>') +
+            '</td>' +
+          '</tr>';
+        });
+        html += '</tbody></table></div></div>';
+      }
+
+      // 3. تبويب المعلمين
+      else if (activeAdminTab === 'teachers') {
+        html += '<div class="bg-white p-5 rounded-2xl border shadow-sm space-y-4 mt-4">' +
+          '<h3 class="font-black text-sm text-gray-900 m-0">قائمة المعلمين المعتمدين:</h3>' +
+          '<div class="divide-y border rounded-xl overflow-hidden text-xs">';
+        teachers.forEach(function(t) {
+          html += '<div class="p-3 flex items-center justify-between hover:bg-gray-50">' +
+            '<div><span class="font-bold text-gray-900">' + t.full_name + '</span><span class="text-gray-500 mr-2">(' + (t.teacher_spec || 'معلم قرآن') + ')</span><span class="text-gray-400 font-mono text-[10px] mr-2">' + t.phone + '</span></div>' +
+            '<button onclick="adminDeleteUser(\'' + t.id + '\')" class="text-red-600 font-bold px-2 py-1 bg-red-50 rounded">حذف المعلم</button>' +
+          '</div>';
+        });
+        html += '</div></div>';
+      }
+
+      // 4. تبويب البرامج
+      else if (activeAdminTab === 'progs') {
+        html += '<div class="bg-white p-5 rounded-2xl border shadow-sm space-y-4 mt-4">' +
+          '<h3 class="font-black text-sm text-gray-900 m-0">إضافة مسار قرآني جديد (سحابي مباشر):</h3>' +
+          '<div class="grid grid-cols-1 sm:grid-cols-4 gap-2 bg-gray-50 p-3 rounded-xl border text-xs">' +
+            '<input type="text" id="adm-p-title" placeholder="اسم المسار" class="p-2 border rounded-lg" />' +
+            '<input type="number" id="adm-p-price" placeholder="الاشتراك (ج.م)" class="p-2 border rounded-lg font-bold text-[#0c4a2c]" />' +
+            '<select id="adm-p-lessons" class="p-2 border rounded-lg"><option value="2">حصتان</option><option value="3" selected>٣ حصص</option></select>' +
+            '<button onclick="adminAddProgCloud()" class="bg-[#0c4a2c] text-white font-bold py-2 rounded-lg">نشر المسار الآن</button>' +
+          '</div>' +
+          '<div class="divide-y border rounded-xl overflow-hidden text-xs mt-3">';
+        progsList.forEach(function(p) {
+          html += '<div class="p-3 flex items-center justify-between hover:bg-gray-50">' +
+            '<div><span class="font-bold text-gray-900">' + p.title + '</span><span class="text-gray-500 mr-2 font-mono">(' + p.price + ' ج.م)</span></div>' +
+            '<button onclick="adminDeleteProgCloud(\'' + p.id + '\')" class="text-red-600 font-bold px-2 py-1 bg-red-50 rounded">حذف</button>' +
+          '</div>';
+        });
+        html += '</div></div>';
+      }
+
+      // 5. تبويب البث
+      else if (activeAdminTab === 'broadcast') {
+        html += '<div class="bg-white p-5 rounded-2xl border shadow-sm space-y-4 mt-4">' +
+          '<h3 class="font-black text-sm text-gray-900 m-0">بث إشعار عام للطلاب وأولياء الأمور</h3>' +
+          '<div class="flex flex-col sm:flex-row gap-2">' +
+            '<input type="text" id="adm-msg" placeholder="اكتب الإشعار هنا..." class="flex-1 p-2.5 border rounded-xl text-xs" />' +
+            '<button onclick="adminBroadcastCloud()" class="bg-[#0c4a2c] text-white font-bold px-6 py-2.5 rounded-xl text-xs">بث الآن</button>' +
+          '</div></div>';
+      }
+
+      root.innerHTML = html;
+    }
+
+    function setAdminTab(tab) {
+      activeAdminTab = tab;
+      renderAdmin();
+    }
+
+    // دوال المشرف العام
+    async function adminApproveParent(id) {
+      var res = await db.from('academy_users').update({ parent_approved: true }).eq('id', id);
+      if (!res.error) {
+        alert('تم اعتماد ربط ولي الأمر بحساب ابنه بنجاح!');
+        await loadCloud();
+      }
+    }
+
+    async function adminAssignSheikhPrompt(id) {
+      var t = prompt('اكتب اسم الشيخ المعتمد لتعيينه لهذا الطالب:');
+      if (t) {
+        var res = await db.from('academy_users').update({ assigned_teacher: t }).eq('id', id);
+        if (!res.error) {
+          alert('تم تعيين الشيخ للطالب بنجاح وسيظهر فوراً في حسابه وحساب ولي أمره!');
+          await loadCloud();
+        }
+      }
+    }
+
+    async function adminDeleteUser(id) {
+      if (!confirm('حذف هذا الحساب وسجلاته نهائياً؟')) return;
+      await db.from('academy_users').delete().eq('id', id);
+      await loadCloud();
+    }
+
+    async function adminAddProgCloud() {
+      var t = document.getElementById('adm-p-title').value.trim();
+      var p = document.getElementById('adm-p-price').value.trim();
+      var l = document.getElementById('adm-p-lessons').value;
+      if (!t || !p) return alert('اكتب اسم المسار والسعر');
+
+      await db.from('academy_programs').insert([{ title: t, price: parseFloat(p), lessons: parseInt(l) }]);
+      alert('تم نشر البرنامج في السيرفر بنجاح!');
+      await loadCloud();
+    }
+
+    async function adminDeleteProgCloud(id) {
+      if (!confirm('حذف هذا البرنامج؟')) return;
+      await db.from('academy_programs').delete().eq('id', id);
+      await loadCloud();
+    }
+
+    async function adminBroadcastCloud() {
+      var msg = document.getElementById('adm-msg').value.trim();
+      if (!msg) return alert('اكتب نص الإشعار');
+      await db.from('academy_announcements').insert([{ message: msg }]);
+      alert('تم بث الإشعار بنجاح لجميع البوابات!');
+      await loadCloud();
+    }
+
+    // التنقل في شاشة الحسابات
+    function openAuthScreen(mode) {
+      document.getElementById('auth-choose').style.display = mode === 'reg' ? 'block' : 'none';
+      document.getElementById('auth-login').style.display = mode === 'login' ? 'block' : 'none';
+      document.getElementById('auth-stu').style.display = 'none';
+      document.getElementById('auth-par').style.display = 'none';
+      document.getElementById('auth-tea').style.display = 'none';
+      showScreen('auth');
+    }
+
+    function selectRegRole(role) {
+      document.getElementById('auth-choose').style.display = 'none';
+      document.getElementById('auth-stu').style.display = role === 'student' ? 'block' : 'none';
+      document.getElementById('auth-par').style.display = role === 'parent' ? 'block' : 'none';
+      document.getElementById('auth-tea').style.display = role === 'teacher' ? 'block' : 'none';
+    }
+
+    window.onload = function() {
+      loadCloud();
+      if (currentUser) {
+        showScreen(currentUser.role);
+      } else {
+        showScreen('home');
+      }
+    };
+  </script>
+</head>
+<body class="flex flex-col min-h-screen relative">
+
+  <!-- زر الواتساب المباشر (01040263031) -->
+  <a href="https://wa.me/201040263031?text=السلام%20عليكم%20ورحمة%20الله،%20أرغب%20في%20الاستفسار%20عن%20برامج%20أكاديمية%20ورتّل" 
+     target="_blank" 
+     class="fixed bottom-6 left-6 z-50 bg-[#25D366] text-white p-3.5 rounded-full shadow-2xl flex items-center gap-2 hover:bg-[#20ba59] transition wa-float">
+    <svg class="w-7 h-7 fill-current" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>
+    <div class="hidden sm:block text-right leading-tight">
+      <div class="text-[10px] text-green-100 font-bold">تواصل واتساب المباشر</div>
+      <div class="text-xs font-black font-mono">01040263031</div>
+    </div>
+  </a>
+
+  <!-- رأس الموقع (Header) + مدخل الإدارة فوق على اليمين غير البائن -->
+  <header class="bg-[#0c4a2c] text-white sticky top-0 z-40 shadow-lg border-b-2 border-[#c9a34a]">
+    <div class="max-w-7xl mx-auto px-4 h-16 sm:h-20 flex items-center justify-between">
+      
+      <!-- أعلى اليمين: اللوجو + الاسم + كلمة الإدارة الخافتة -->
+      <div class="flex items-center gap-2">
+        <div onclick="openSecretModal()" class="w-11 h-11 sm:w-13 sm:h-13 rounded-full border-2 border-[#c9a34a] bg-white flex items-center justify-center p-0.5 shadow cursor-pointer">
+          <div class="w-full h-full rounded-full bg-[#0c4a2c] text-[#c9a34a] flex flex-col items-center justify-center font-bold text-[9px]">
+            <span class="text-sm">📖</span>
+            <span class="font-bold text-[8px] mt-0.5">وَرَتِّلْ</span>
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 onclick="showScreen('home')" class="text-base sm:text-lg font-black leading-tight text-white m-0 cursor-pointer">
+              أكاديمية وَرَتِّلْ لتعليم القرآن
+            </h1>
+            <span onclick="openSecretModal()" style="opacity: 0.25; cursor: pointer;" class="text-[10px] text-[#c9a34a] hover:opacity-100 transition select-none font-bold">
+              الإدارة
+            </span>
+          </div>
+          <p class="text-[10px] sm:text-xs text-[#c9a34a] m-0 font-medium">"حيثُ تُزهرُ القلوبُ بنور القرآن"</p>
+        </div>
+      </div>
+
+      <div id="nav-box" class="flex items-center"></div>
+
+    </div>
+  </header>
+
+  <!-- نافذة دخول المشرف العام السرية (حقول فارغة ومحمية تماماً) -->
+  <div id="secret-modal" style="display: none;" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 items-center justify-center p-4">
+    <div class="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border-2 border-[#c9a34a]">
+      <div class="text-center mb-5">
+        <div class="w-12 h-12 bg-amber-100 text-[#c9a34a] rounded-2xl flex items-center justify-center mx-auto mb-2 text-2xl font-bold">🔒</div>
+        <h3 class="text-lg font-black text-gray-900 m-0">مدخل الإدارة العامة المشفر</h3>
+        <p class="text-xs text-gray-500 mt-1">خاص بفضيلة المشرف العام الشيخ معتصم عماد</p>
+      </div>
+      <div id="secret-err" style="display: none;" class="bg-red-50 text-red-700 text-xs p-2 rounded-xl border border-red-200 mb-3 text-center font-bold"></div>
+      <div class="space-y-3">
+        <input type="tel" id="adm-phone" placeholder="أدخل رقم الهاتف المصرح..." autocomplete="off" class="w-full p-2.5 border rounded-xl text-xs font-mono font-bold" />
+        <input type="password" id="adm-pass" placeholder="أدخل كلمة المرور..." autocomplete="off" class="w-full p-2.5 border rounded-xl text-xs font-bold" />
+        <div class="flex gap-2 pt-2">
+          <button onclick="verifySecret()" class="flex-1 bg-[#0c4a2c] text-white text-xs font-bold py-2.5 rounded-xl">فتح لوحة التحكم</button>
+          <button onclick="closeSecretModal()" class="bg-gray-100 text-gray-700 text-xs font-bold px-4 rounded-xl">إلغاء</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- 1. الشاشة الرئيسية (Home) -->
+  <!-- ============================================================== -->
+  <div id="screen-home" class="flex-1">
+    <section class="bg-gradient-to-b from-[#0c4a2c] via-[#145c38] to-[#FAF8F5] text-white pt-14 pb-20 px-4 text-center">
+      <div class="max-w-4xl mx-auto">
+        <span class="bg-white/10 text-[#c9a34a] border border-[#c9a34a]/40 text-xs px-4 py-1.5 rounded-full font-bold inline-block mb-4 shadow-sm">
+          بِالْقُرْآنِ نَحْيَا... وَمَعَ الْقُرْآنِ نَرْتَقِي
+        </span>
+        <h2 class="text-3xl sm:text-5xl font-black mb-4 leading-tight text-white m-0">
+          رحلتك مع كتاب الله تبدأ من هنا
+        </h2>
+        <p class="text-sm sm:text-base text-gray-200 max-w-2xl mx-auto mb-8 leading-relaxed">
+          صرح تعليمي قرآني يسعى لربط الأجيال بكتاب الله حفظاً وتلاوةً وتدبراً، بإشراف فضيلة الشيخ معتصم عماد.
+        </p>
+        <button onclick="openAuthScreen('reg')" class="bg-[#c9a34a] hover:bg-[#dfb858] text-black font-black text-sm px-8 py-3.5 rounded-xl shadow-lg transition">
+          ✨ ابدأ رحلتك وأنشئ حسابك الآن
+        </button>
+      </div>
+    </section>
+
+    <section class="py-14 px-4 max-w-6xl mx-auto">
+      <div class="text-center mb-10">
+        <span class="text-xs font-bold text-[#c9a34a] bg-[#c9a34a]/10 px-3 py-1 rounded-full uppercase">المناهج المعتمدة</span>
+        <h3 class="text-2xl sm:text-3xl font-black m-0 mt-2">البرامج والمسارات القرآنية التخصصية</h3>
+      </div>
+      <div id="home-progs" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"></div>
+    </section>
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- 2. شاشات التسجيل الشاملة وتسجيل الدخول (Auth Screen) -->
+  <!-- ============================================================== -->
+  <div id="screen-auth" style="display: none;" class="flex-1 max-w-2xl mx-auto w-full p-4 sm:p-8">
+    <div class="bg-white rounded-3xl p-6 sm:p-8 shadow-xl border">
+      
+      <!-- اختيار الصفة -->
+      <div id="auth-choose">
+        <h3 class="text-xl font-black text-center text-gray-900 mb-2">إنشاء حساب جديد في أكاديمية ورتّل</h3>
+        <p class="text-xs text-center text-gray-500 mb-6">اختر نوع حسابك لتعبئة الاستمارة المطلوبة:</p>
+        <div class="space-y-3">
+          <button onclick="selectRegRole('student')" class="w-full p-4 border rounded-2xl hover:border-[#0c4a2c] flex items-center gap-3 text-right transition shadow-sm">
+            <span class="text-3xl">👦</span>
+            <div><h4 class="font-bold text-sm m-0">أنا طالب (دارس للقرآن)</h4><p class="text-xs text-gray-500 m-0">استمارة التسجيل الكاملة واختيار البرامج والشيخ المتابع</p></div>
+          </button>
+          <button onclick="selectRegRole('parent')" class="w-full p-4 border rounded-2xl hover:border-[#0c4a2c] flex items-center gap-3 text-right transition shadow-sm">
+            <span class="text-3xl">👨‍👩‍👦</span>
+            <div><h4 class="font-bold text-sm m-0">أنا ولي أمر</h4><p class="text-xs text-gray-500 m-0">لمتابعة حفظ ابني ودرجاته وسجلاته بعد اعتماد الإدارة</p></div>
+          </button>
+          <button onclick="selectRegRole('teacher')" class="w-full p-4 border rounded-2xl hover:border-[#0c4a2c] flex items-center gap-3 text-right transition shadow-sm">
+            <span class="text-3xl">👨‍🏫</span>
+            <div><h4 class="font-bold text-sm m-0">أنا معلّم / معلّمة قرآن</h4><p class="text-xs text-gray-500 m-0">للانضمام للكادر التعليمي ورصد الحلقات والدرجات للطلاب</p></div>
+          </button>
+        </div>
+      </div>
+
+      <!-- استمارة الطالب الشاملة -->
+      <div id="auth-stu" style="display: none;" class="space-y-4 text-xs">
+        <h3 class="font-black text-[#0c4a2c] text-base mb-1">استمارة تسجيل دارس قرآن جديد (كاملة)</h3>
+        <p class="text-gray-500 text-[11px] mb-4">املأ بياناتك بدقة لتحديد الشيخ والمستوى القرآني المناسب لك:</p>
+        
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div><label class="font-bold block mb-1">الاسم الرباعي للطالب *</label><input type="text" id="reg-stu-name" placeholder="محمد أحمد علي السيد" class="w-full p-2.5 border rounded-xl" /></div>
+          <div><label class="font-bold block mb-1">رقم الهاتف (للتسجيل والدخول) *</label><input type="tel" id="reg-stu-phone" placeholder="01xxxxxxxxx" class="w-full p-2.5 border rounded-xl" /></div>
+          <div><label class="font-bold block mb-1">كلمة المرور الخاصة بك *</label><input type="password" id="reg-stu-pass" placeholder="••••••••" class="w-full p-2.5 border rounded-xl" /></div>
+          <div><label class="font-bold block mb-1">رقم الواتساب للتواصل *</label><input type="tel" id="reg-stu-wa" placeholder="01xxxxxxxxx" class="w-full p-2.5 border rounded-xl" /></div>
+          <div><label class="font-bold block mb-1">العمر *</label><input type="number" id="reg-stu-age" placeholder="مثال: 14" class="w-full p-2.5 border rounded-xl" /></div>
+          <div><label class="font-bold block mb-1">النوع *</label><select id="reg-stu-gender" class="w-full p-2.5 border rounded-xl bg-white"><option value="ذكر">ذكر</option><option value="أنثى">أنثى</option></select></div>
+          <div><label class="font-bold block mb-1">المحافظة / الدولة *</label><input type="text" id="reg-stu-gov" placeholder="مثال: الجيزة / مصر" class="w-full p-2.5 border rounded-xl" /></div>
+          <div><label class="font-bold block mb-1">المؤهل الدراسي</label><input type="text" id="reg-stu-qual" placeholder="مثال: إعدادي / ثانوي / جامعي" class="w-full p-2.5 border rounded-xl" /></div>
+          <div><label class="font-bold block mb-1">المستوى القرآني الحالي</label><select id="reg-stu-level" class="w-full p-2.5 border rounded-xl bg-white"><option value="مبتدئ">مبتدئ</option><option value="متوسط">متوسط</option><option value="متقدم">متقدم</option></select></div>
+          <div><label class="font-bold block mb-1">المحفوظ السابق تقريباً</label><select id="reg-stu-memo" class="w-full p-2.5 border rounded-xl bg-white"><option value="أقل من جزء">أقل من جزء</option><option value="١ - ٣ أجزاء">١ - ٣ أجزاء</option><option value="٤ - ١٠ أجزاء">٤ - ١٠ أجزاء</option><option value="أكثر من ١٥ جزءاً">أكثر من ١٥ جزءاً</option><option value="خاتم لكتاب الله">خاتم لكتاب الله</option></select></div>
+          <div><label class="font-bold block mb-1">الأوقات المفضلة للدراسة</label><select id="reg-stu-timing" class="w-full p-2.5 border rounded-xl bg-white"><option value="مساءً (بعد العصر)">مساءً (بعد العصر)</option><option value="ليلاً (بعد العشاء)">ليلاً (بعد العشاء)</option><option value="صباحاً">صباحاً</option></select></div>
+          <div><label class="font-bold block mb-1">المسار القرآني المطلوب *</label><select id="reg-stu-program" class="w-full p-2.5 border rounded-xl bg-white font-bold text-[#0c4a2c]"></select></div>
+        </div>
+
+        <div class="bg-gray-50 p-3 rounded-2xl border mt-3">
+          <div class="font-bold text-gray-700 mb-2">بيانات ولي الأمر (خاصة بالصغار والناشئة):</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <input type="text" id="reg-stu-gname" placeholder="اسم ولي الأمر" class="w-full p-2 border rounded-xl" />
+            <input type="tel" id="reg-stu-gphone" placeholder="هاتف ولي الأمر" class="w-full p-2 border rounded-xl" />
+          </div>
+        </div>
+
+        <button onclick="submitStudentRegistration()" class="w-full bg-[#0c4a2c] text-white font-bold py-3.5 rounded-xl text-sm shadow hover:bg-[#145c38] transition">
+          إنشاء الحساب ودخول منصة الطالب
+        </button>
+        <button onclick="openAuthScreen('reg')" class="w-full text-center text-gray-400 py-1">رجوع</button>
+      </div>
+
+      <!-- استمارة ولي الأمر -->
+      <div id="auth-par" style="display: none;" class="space-y-3 text-xs">
+        <h3 class="font-black text-[#0c4a2c] text-base mb-1">استمارة تسجيل ولي أمر</h3>
+        <p class="text-gray-500 text-[11px] mb-4">اكتب بياناتك واسم ابنك الذي ترغب بمتابعة سجلاته:</p>
+        <div><label class="font-bold block mb-1">اسم ولي الأمر الرباعي *</label><input type="text" id="reg-par-name" placeholder="أحمد محمود السيد" class="w-full p-2.5 border rounded-xl" /></div>
+        <div><label class="font-bold block mb-1">رقم الهاتف (لتسجيل الدخول) *</label><input type="tel" id="reg-par-phone" placeholder="01xxxxxxxxx" class="w-full p-2.5 border rounded-xl" /></div>
+        <div><label class="font-bold block mb-1">كلمة المرور الخاصة بك *</label><input type="password" id="reg-par-pass" placeholder="••••••••" class="w-full p-2.5 border rounded-xl" /></div>
+        <div><label class="font-bold block mb-1">رقم الواتساب *</label><input type="tel" id="reg-par-wa" placeholder="01xxxxxxxxx" class="w-full p-2.5 border rounded-xl" /></div>
+        <div class="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+          <label class="font-bold block text-amber-900 mb-1">الاسم الرباعي للطالب (ابنك) *</label>
+          <input type="text" id="reg-par-child" placeholder="اسم الابن كما سجله في حسابه" class="w-full p-2.5 border rounded-xl bg-white" />
+          <span class="text-[10px] text-amber-700 mt-1 block">تظهر لك بيانات هذا الطالب وسجلاته فور اعتماد الإدارة لصلة القرابة.</span>
+        </div>
+        <button onclick="submitParentRegistration()" class="w-full bg-[#0c4a2c] text-white font-bold py-3.5 rounded-xl text-sm shadow">إنشاء الحساب والدخول</button>
+        <button onclick="openAuthScreen('reg')" class="w-full text-center text-gray-400 py-1">رجوع</button>
+      </div>
+
+      <!-- استمارة المعلم -->
+      <div id="auth-tea" style="display: none;" class="space-y-3 text-xs">
+        <h3 class="font-black text-[#0c4a2c] text-base mb-1">استمارة انضمام معلّم قرآن كريم</h3>
+        <div><label class="font-bold block mb-1">اسم الشيخ / المعلمة *</label><input type="text" id="reg-tea-name" placeholder="فضيلة الشيخ..." class="w-full p-2.5 border rounded-xl" /></div>
+        <div><label class="font-bold block mb-1">رقم الهاتف (لتسجيل الدخول) *</label><input type="tel" id="reg-tea-phone" placeholder="01xxxxxxxxx" class="w-full p-2.5 border rounded-xl" /></div>
+        <div><label class="font-bold block mb-1">كلمة المرور *</label><input type="password" id="reg-tea-pass" placeholder="••••••••" class="w-full p-2.5 border rounded-xl" /></div>
+        <div><label class="font-bold block mb-1">المؤهلات والإجازات القرآنية *</label><input type="text" id="reg-tea-spec" placeholder="مثال: إجازة حفص وشعبة وخبرة ٥ سنوات" class="w-full p-2.5 border rounded-xl" /></div>
+        <button onclick="submitTeacherRegistration()" class="w-full bg-[#0c4a2c] text-white font-bold py-3.5 rounded-xl text-sm shadow">إنشاء حساب المعلم</button>
+        <button onclick="openAuthScreen('reg')" class="w-full text-center text-gray-400 py-1">رجوع</button>
+      </div>
+
+      <!-- شاشة تسجيل الدخول بالرقم والباسورد -->
+      <div id="auth-login" style="display: none;" class="space-y-4 text-xs">
+        <h3 class="text-base font-black text-center text-gray-900 m-0">تسجيل الدخول للمنصة</h3>
+        <p class="text-[11px] text-center text-gray-500 mb-4">أدخل رقم هاتفك المسجل وكلمة المرور للدخول لحسابك:</p>
+        <div><label class="font-bold block mb-1">رقم الهاتف المسجل *</label><input type="tel" id="login-phone" placeholder="01xxxxxxxxx" class="w-full p-3 border rounded-xl font-mono text-sm" /></div>
+        <div><label class="font-bold block mb-1">كلمة المرور *</label><input type="password" id="login-pass" placeholder="••••••••" class="w-full p-3 border rounded-xl text-sm" /></div>
+        <button onclick="handleLoginSubmit()" class="w-full bg-[#0c4a2c] text-white font-bold py-3.5 rounded-xl text-sm shadow hover:bg-[#145c38]">دخول لحسابي</button>
+        <div class="text-center pt-2"><button onclick="openAuthScreen('reg')" class="text-xs text-[#c9a34a] font-bold hover:underline">ليس لديك حساب؟ سجّل الآن مجاناً</button></div>
+      </div>
+
+      <div class="mt-4 pt-3 border-t text-center">
+        <button onclick="showScreen('home')" class="text-xs text-gray-400 hover:underline">← العودة للرئيسية</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- 3. بوابة الطالب الخاصة (Student Dashboard) -->
+  <!-- ============================================================== -->
+  <div id="screen-student" style="display: none;" class="flex-1 max-w-5xl mx-auto w-full p-4 sm:p-6 space-y-5">
+    <div class="bg-amber-100 border border-amber-300 text-amber-900 p-3 rounded-2xl text-xs font-bold" id="dash-stu-banner"></div>
+    
+    <div class="bg-gradient-to-r from-[#0c4a2c] to-[#145c38] text-white p-6 rounded-3xl border-2 border-[#c9a34a] shadow flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+      <div>
+        <span class="text-[10px] bg-[#c9a34a] text-black font-extrabold px-3 py-0.5 rounded-full">بوابة الطالب القرآنية</span>
+        <h2 class="text-2xl font-black mt-1 m-0 text-white" id="dash-stu-name"></h2>
+        <p class="text-xs text-gray-200 mt-1 m-0">المسار: <strong class="text-[#c9a34a]" id="dash-stu-prog"></strong> | الشيخ المشرف: <strong class="text-white" id="dash
